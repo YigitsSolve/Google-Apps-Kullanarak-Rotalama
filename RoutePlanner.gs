@@ -1,77 +1,74 @@
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('Route')
-    .addItem('Plan Nearest Neighbor Route', 'calculateNearestNeighborRoute')
+    .addItem('Plan Route', 'calculateRoute')
     .addToUi();
 }
 
-function calculateNearestNeighborRoute() {
+function calculateRoute() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var data = sheet.getDataRange().getValues();
+  var addresses = sheet.getRange("B1:B" + sheet.getLastRow()).getValues().flat().filter(String); // Boş değerleri filtrele
 
-  var origin = data[0][1]; // Başlangıç noktası (B1 hücresinden)
-  var destinations = data.slice(1).map(row => row[1]).filter(Boolean); // Diğer noktalar
+  var resultSheet = prepareResultSheet();
 
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var existingSheet = spreadsheet.getSheetByName("Optimized Route");
-  if (existingSheet) {
-    spreadsheet.deleteSheet(existingSheet);
-  }
-  var optimizedSheet = spreadsheet.insertSheet("Optimized Route");
-  optimizedSheet.appendRow(["Sıra", "Nokta", "Mesafe (km)", "Süre"]);
+  var current = addresses[0]; // Başlangıç noktası
+  var remaining = addresses.slice(1); // İlk nokta dışındaki tüm adresler
 
-  var route = [origin];
-  var currentPoint = origin;
-  var totalDistance = 0;
-  var order = 1;
-
-  while (destinations.length > 0) {
-    var closestPointData = getClosestPoint(currentPoint, destinations);
+  while (remaining.length > 0) {
+    var next = findClosestDestination(current, remaining);
+    if (next.destination === "") { // Eğer geçerli bir sonraki adres bulunamazsa döngüyü bitir
+      break;
+    }
+    var directions = Maps.newDirectionFinder()
+                         .setOrigin(current)
+                         .setDestination(next.destination)
+                         .getDirections();
+    var route = directions.routes[0];
+    var legs = route.legs[0];
+    var distance = legs.distance.text; // Metin olarak mesafe
+    var duration = legs.duration.text; // Metin olarak süre
     
-    if (!closestPointData) break; // Eğer mesafe hesaplanamazsa çık
+    resultSheet.appendRow([current, next.destination, distance, duration]);
 
-    var closestPoint = closestPointData.destination;
-    var shortestDistance = closestPointData.distance;
-    var duration = closestPointData.duration;
-
-    optimizedSheet.appendRow([order, closestPoint, shortestDistance.toFixed(2), duration]);
-
-    totalDistance += shortestDistance;
-    currentPoint = closestPoint;
-    destinations = destinations.filter(point => point !== closestPoint);
-    order++;
+    current = next.destination;
+    remaining.splice(next.index, 1);
   }
-
-  optimizedSheet.appendRow(["", "Toplam Mesafe", totalDistance.toFixed(2) + " km"]);
 }
 
-// 🔥 En yakın noktayı bulan fonksiyon
-function getClosestPoint(origin, destinations) {
-  var shortestDistance = Number.MAX_VALUE;
-  var closestPoint = null;
-  var bestDuration = "";
+function prepareResultSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var resultSheet = ss.getSheetByName("Distances");
+  if (resultSheet) ss.deleteSheet(resultSheet);
+  resultSheet = ss.insertSheet("Distances");
+  resultSheet.appendRow(["From", "To", "Distance (meters)", "Duration (minutes)"]);
+  return resultSheet;
+}
+
+function findClosestDestination(current, destinations) {
+  var minDistance = Infinity;
+  var closestIndex = -1;
+  var closestDestination = "";
 
   for (var i = 0; i < destinations.length; i++) {
-    var destination = destinations[i];
+    try {
+      var directions = Maps.newDirectionFinder()
+                           .setOrigin(current)
+                           .setDestination(destinations[i])
+                           .getDirections();
+      var route = directions.routes[0];
+      var legs = route.legs[0];
+      var distanceValue = legs.distance.value; // Sayısal değer
 
-    // Google Maps API ile mesafeyi hesapla
-    var directions = Maps.newDirectionFinder()
-      .setOrigin(origin)
-      .setDestination(destination)
-      .getDirections();
-
-    var routeInfo = directions.routes[0];
-    if (routeInfo && routeInfo.legs && routeInfo.legs[0]) {
-      var distance = routeInfo.legs[0].distance.value / 1000; // Metreyi km'ye çevir
-      var duration = routeInfo.legs[0].duration.text;
-
-      if (distance < shortestDistance) {
-        shortestDistance = distance;
-        closestPoint = destination;
-        bestDuration = duration;
+      if (distanceValue < minDistance) {
+        minDistance = distanceValue;
+        closestIndex = i;
+        closestDestination = destinations[i];
       }
+    } catch(e) {
+      // Adres geçersizse bu blok çalışacak
+      console.log("Geçersiz adres: " + destinations[i]);
     }
   }
 
-  return closestPoint ? { destination: closestPoint, distance: shortestDistance, duration: bestDuration } : null;
+  return { index: closestIndex, destination: closestDestination };
 }
