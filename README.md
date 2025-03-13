@@ -1,3 +1,4 @@
+Önemli not Route Planner.gs aalışmıyorsa Route Planlama.gs ile deneyin.
 # En Yakın Komşu Rotası Hesaplama Scripti
 
 Bu repository, Google Sheets üzerinde çalışan ve belirlenen bir başlangıç noktasından diğer noktalara en kısa mesafeyi hesaplayarak en yakın komşu rotasını optimize eden bir Google Apps Script içerir.
